@@ -1,0 +1,9 @@
+﻿################################################################################
+# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
+################################################################################
+
+/AreaPathSecuritySample/.vs/AddUserToAreaPath/v15
+/AreaPathSecuritySample/AreaPathSecuritySample/bin/Debug
+/AreaPathSecuritySample/AreaPathSecuritySample/obj/Debug
+/AreaPathSecuritySample/packages
+/AreaPathSecuritySample/.vs/AreaPathSecuritySample/v15
