@@ -1,6 +1,4 @@
-﻿
-using AreaPathSecuritySample;
-using CommandLine;
+﻿using CommandLine;
 using Microsoft.TeamFoundation.Core.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
@@ -12,11 +10,9 @@ using Microsoft.VisualStudio.Services.Security;
 using Microsoft.VisualStudio.Services.Security.Client;
 using Microsoft.VisualStudio.Services.WebApi;
 using Newtonsoft.Json;
-using OfficeOpenXml;
 using System;
 using System.Collections.Generic;
 using System.Data;
-using System.IO;
 using System.Linq;
 
 namespace AddUserToAreaPath
@@ -27,69 +23,122 @@ namespace AddUserToAreaPath
         private static Guid projectSecurityNamespaceId = new Guid("52d39943-cb85-4d7f-8fa8-c6baac873819");
         private static void Main(string[] args)
         {
-            var result = Parser.Default.ParseArguments<Options>(args);
-            //Console.WriteLine("Enter Organization URL ex:https://dev.azure.com/{ORG}");
-            string accountUrl = "https://dev.azure.com/culater";
-            string projectName = "abc_con";
-            string areaPathName = string.Empty;
-            string groupName = string.Empty;
-            string projectId = string.Empty;
-            Console.WriteLine("You might see a login screen if you have never signed in to your account using this app.");
-            VssConnection connection = new VssConnection(new Uri(accountUrl), new VssClientCredentials());
+            try
+            {
+                var result = Parser.Default.ParseArguments<Options>(args);
+                Console.WriteLine("Enter Organization Name");
+                string accountUrl = Console.ReadLine();//"https://dev.azure.com/culater";
+                accountUrl = "https://dev.azure.com/" + accountUrl;
+                Console.WriteLine("Enter Project Name");
 
-            // Get the team project
-            TeamProject project = GetProject(connection, projectName);
-            // Create Group at project level
-            List<Groups> exportRows = ExportAreas();
-            Dictionary<string, string> groupArea = new Dictionary<string, string>();
-            string _area = string.Empty;
-            string _subArea = string.Empty;
-            string _group = string.Empty;
-            foreach (var row in exportRows)
-            {
-                string retGroupName = ConcatValues(row.Area, row.Subarea, row.Group);
-                string retAreaName = ConcatAreaValues(row.Area, row.Subarea);
-                groupArea.Add(retGroupName, retAreaName);
-            }
-            if (groupArea.Count > 0)
-            {
-                foreach (var grp in groupArea)
+                string projectName = Console.ReadLine();
+                string areaPathName = string.Empty;
+                string groupName = string.Empty;
+                string projectId = string.Empty;
+                Console.WriteLine("You might see a login screen if you have never signed in to your account using this app.");
+                VssConnection connection = new VssConnection(new Uri(accountUrl), new VssClientCredentials());
+
+                // Get the team project
+                TeamProject project = GetProject(connection, projectName);
+                // Create Group at project level
+                //List<Groups> exportRows = ExportAreas();
+                Dictionary<string, string> groupArea = new Dictionary<string, string>();
+                string[] staticGroups = new string[] { "Dev", "QA", "Dev Lead", "Tech Lead", "Manager" };
+                string _area = string.Empty;
+                string _subArea = string.Empty;
+                string _group = string.Empty;
+                //foreach (var row in exportRows)
+                //{
+                //    string retGroupName = ConcatValues(row.Area, row.Subarea, row.Group);
+                //    string retAreaName = ConcatAreaValues(row.Area, row.Subarea);
+                //    groupArea.Add(retGroupName, retAreaName);
+                //}
+                WorkItemTrackingHttpClient workClient = connection.GetClient<WorkItemTrackingHttpClient>();
+                WorkItemClassificationNode areaPaths = workClient.GetClassificationNodeAsync(project.Id, TreeStructureGroup.Areas, depth: 5).Result;
+                if (areaPaths.HasChildren == true)
                 {
-                    CreateProjectVSTSGroup(connection, project.Id, grp.Key);
+                    List<string> listAreas = new List<string>();
+                    string areaName = string.Empty;
+
+                    foreach (var child in areaPaths.Children)
+                    {
+                        areaName = child.Name;
+                        listAreas.Add(areaName);
+                        if (child.HasChildren == true)
+                        {
+                            foreach (var ch in child.Children)
+                            {
+                                string subArea = ch.Name;
+                                string newSubAreaName = areaName + "\\" + subArea;
+                                listAreas.Add(newSubAreaName);
+                            }
+                        }
+                    }
+                    foreach (var lArea in listAreas)
+                    {
+                        string subAreaName = string.Empty;
+                        string[] splitArea = lArea.Split('\\');
+                        string newgroupName = string.Empty;
+                        if (splitArea.Length == 2)
+                        {
+                            subAreaName = splitArea[1];
+                        }
+                        else
+                        {
+                            subAreaName = splitArea[0];
+                        }
+                        foreach (var _sGroups in staticGroups)
+                        {
+                            newgroupName = subAreaName + "_" + _sGroups;
+                            groupArea.Add(newgroupName, lArea);
+                        }
+                    }
+
                 }
-            }
-            if (groupArea.Count > 0)
-            {
-                foreach (var grp in groupArea)
+
+                if (groupArea.Count > 0)
                 {
-                    areaPathName = grp.Value;
-                    groupName = grp.Key;
-                    WorkItemTrackingHttpClient workClient = connection.GetClient<WorkItemTrackingHttpClient>();
-                    WorkItemClassificationNode areaPath = workClient.GetClassificationNodeAsync(project.Id, TreeStructureGroup.Areas, path: areaPathName).Result;
-
-                    // Get the group
-                    Identity group = GetProjectGroup(connection, groupName, projectName);
-
-                    // Get the acls for the area path
-                    SecurityHttpClient securityClient = connection.GetClient<SecurityHttpClient>();
-                    IEnumerable<AccessControlList> acls = securityClient.QueryAccessControlListsAsync(securityNamespaceId, null, null, false, false).Result;
-                    AccessControlList areaPathAcl = acls.FirstOrDefault(x => x.Token.Contains(areaPath.Identifier.ToString()));
-
-                    // Add group to the area path security with read/write perms for work items in this area path
-                    AccessControlEntry entry = new AccessControlEntry(group.Descriptor, 48, 0, null);
-                    var aces = securityClient.SetAccessControlEntriesAsync(securityNamespaceId, areaPathAcl.Token, new List<AccessControlEntry> { entry }, false).Result;
-
-                    // Get acls for project
-                    IEnumerable<AccessControlList> aclsProject = securityClient.QueryAccessControlListsAsync(projectSecurityNamespaceId, null, null, false, false).Result;
-                    string xsx = JsonConvert.SerializeObject(aclsProject);
-                    AccessControlList projectAcl = aclsProject.FirstOrDefault(x => x.Token.Contains(project.Id.ToString()));
-                    AccessControlEntry projectEntry = new AccessControlEntry(group.Descriptor, 1, 0, null);
-                    var acesP = securityClient.SetAccessControlEntriesAsync(projectSecurityNamespaceId, projectAcl.Token, new List<AccessControlEntry> { projectEntry }, false).Result;
+                    foreach (var grp in groupArea)
+                    {
+                        CreateProjectVSTSGroup(connection, project.Id, grp.Key);
+                    }
                 }
-            }
-            // Get the area path
+                Console.WriteLine("Mapping groups to area, please wait..");
+                if (groupArea.Count > 0)
+                {
+                    foreach (var grp in groupArea)
+                    {
+                        areaPathName = grp.Value;
+                        groupName = grp.Key;
+                        WorkItemClassificationNode areaPath = workClient.GetClassificationNodeAsync(project.Id, TreeStructureGroup.Areas, path: areaPathName).Result;
+                        // Get the group
+                        Identity group = GetProjectGroup(connection, groupName, projectName);
 
-            Console.WriteLine("Successfully added your group to the area path.");
+                        // Get the acls for the area path
+                        SecurityHttpClient securityClient = connection.GetClient<SecurityHttpClient>();
+                        IEnumerable<AccessControlList> acls = securityClient.QueryAccessControlListsAsync(securityNamespaceId, null, null, false, false).Result;
+                        AccessControlList areaPathAcl = acls.FirstOrDefault(x => x.Token.Contains(areaPath.Identifier.ToString()));
+
+                        // Add group to the area path security with read/write perms for work items in this area path
+                        AccessControlEntry entry = new AccessControlEntry(group.Descriptor, 48, 0, null);
+                        var aces = securityClient.SetAccessControlEntriesAsync(securityNamespaceId, areaPathAcl.Token, new List<AccessControlEntry> { entry }, false).Result;
+
+                        // Get acls for project
+                        IEnumerable<AccessControlList> aclsProject = securityClient.QueryAccessControlListsAsync(projectSecurityNamespaceId, null, null, false, false).Result;
+                        string xsx = JsonConvert.SerializeObject(aclsProject);
+                        AccessControlList projectAcl = aclsProject.FirstOrDefault(x => x.Token.Contains(project.Id.ToString()));
+                        AccessControlEntry projectEntry = new AccessControlEntry(group.Descriptor, 1, 0, null);
+                        var acesP = securityClient.SetAccessControlEntriesAsync(projectSecurityNamespaceId, projectAcl.Token, new List<AccessControlEntry> { projectEntry }, false).Result;
+                    }
+                }
+                // Get the area path
+
+                Console.WriteLine("Successfully added your group to the area path.");
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+            }
         }
 
         private static TeamProject GetProject(VssConnection connection, string projectName)
@@ -136,68 +185,69 @@ namespace AddUserToAreaPath
             return identityClient.ReadIdentityAsync(id).Result;
         }
 
-        public static List<Groups> ExportAreas(bool hasHeader = true)
-        {
-            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Setting\\Groups.xlsx");
+        //public static List<Groups> ExportAreas(bool hasHeader = true)
+        //{
+        //    string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Setting\\Groups.xlsx");
 
-            using (var pck = new ExcelPackage())
-            {
-                using (var stream = File.OpenRead(path))
-                {
-                    pck.Load(stream);
-                }
-                var ws = pck.Workbook.Worksheets.First();
-                DataTable tbl = new DataTable();
-                foreach (var firstRowCell in ws.Cells[1, 1, 1, ws.Dimension.End.Column])
-                {
-                    tbl.Columns.Add(hasHeader ? firstRowCell.Text : string.Format("Column {0}", firstRowCell.Start.Column));
-                }
-                var startRow = hasHeader ? 2 : 1;
-                for (int rowNum = startRow; rowNum <= ws.Dimension.End.Row; rowNum++)
-                {
-                    var wsRow = ws.Cells[rowNum, 1, rowNum, ws.Dimension.End.Column];
-                    DataRow row = tbl.Rows.Add();
-                    foreach (var cell in wsRow)
-                    {
-                        row[cell.Start.Column - 1] = cell.Text;
-                    }
-                }
-                string JSONString = string.Empty;
-                var abc = JsonConvert.DeserializeObject<List<Groups>>(JsonConvert.SerializeObject(tbl));
-                return JsonConvert.DeserializeObject<List<Groups>>(JsonConvert.SerializeObject(tbl));
+        //    using (var pck = new ExcelPackage())
+        //    {
+        //        using (var stream = File.OpenRead(path))
+        //        {
+        //            pck.Load(stream);
+        //        }
+        //        var ws = pck.Workbook.Worksheets.First();
+        //        DataTable tbl = new DataTable();
+        //        foreach (var firstRowCell in ws.Cells[1, 1, 1, ws.Dimension.End.Column])
+        //        {
+        //            tbl.Columns.Add(hasHeader ? firstRowCell.Text : string.Format("Column {0}", firstRowCell.Start.Column));
+        //        }
+        //        var startRow = hasHeader ? 2 : 1;
+        //        for (int rowNum = startRow; rowNum <= ws.Dimension.End.Row; rowNum++)
+        //        {
+        //            var wsRow = ws.Cells[rowNum, 1, rowNum, ws.Dimension.End.Column];
+        //            DataRow row = tbl.Rows.Add();
+        //            foreach (var cell in wsRow)
+        //            {
+        //                row[cell.Start.Column - 1] = cell.Text;
+        //            }
+        //        }
+        //        string JSONString = string.Empty;
+        //        var abc = JsonConvert.DeserializeObject<List<Groups>>(JsonConvert.SerializeObject(tbl));
+        //        return JsonConvert.DeserializeObject<List<Groups>>(JsonConvert.SerializeObject(tbl));
+        //    }
+        //}
 
-            }
-        }
-        public static string ConcatValues(string area, string subarea, string group)
-        {
-            if (!string.IsNullOrEmpty(area) && !string.IsNullOrEmpty(subarea) && !string.IsNullOrEmpty(group))
-            {
-                return string.Format("{0}_{1}", subarea, group);
-            }
-            else if (!string.IsNullOrEmpty(area) && string.IsNullOrEmpty(subarea) && !string.IsNullOrEmpty(group))
-            {
-                return string.Format("{0}_{1}", area, group);
-            }
-            else
-            {
-                return "";
-            }
-        }
-        public static string ConcatAreaValues(string area, string subarea)
-        {
-            if (!string.IsNullOrEmpty(area) && !string.IsNullOrEmpty(subarea))
-            {
-                return string.Format("{0}\\{1}", area, subarea);
-            }
-            else if (!string.IsNullOrEmpty(area) && string.IsNullOrEmpty(subarea))
-            {
-                return string.Format("{0}", area);
-            }
-            else
-            {
-                return "";
-            }
-        }
+        //public static string ConcatValues(string area, string subarea, string group)
+        //{
+        //    if (!string.IsNullOrEmpty(area) && !string.IsNullOrEmpty(subarea) && !string.IsNullOrEmpty(group))
+        //    {
+        //        return string.Format("{0}_{1}", subarea, group);
+        //    }
+        //    else if (!string.IsNullOrEmpty(area) && string.IsNullOrEmpty(subarea) && !string.IsNullOrEmpty(group))
+        //    {
+        //        return string.Format("{0}_{1}", area, group);
+        //    }
+        //    else
+        //    {
+        //        return "";
+        //    }
+        //}
+
+        //public static string ConcatAreaValues(string area, string subarea)
+        //{
+        //    if (!string.IsNullOrEmpty(area) && !string.IsNullOrEmpty(subarea))
+        //    {
+        //        return string.Format("{0}\\{1}", area, subarea);
+        //    }
+        //    else if (!string.IsNullOrEmpty(area) && string.IsNullOrEmpty(subarea))
+        //    {
+        //        return string.Format("{0}", area);
+        //    }
+        //    else
+        //    {
+        //        return "";
+        //    }
+        //}
 
         #region permission
         //Area Path Level
