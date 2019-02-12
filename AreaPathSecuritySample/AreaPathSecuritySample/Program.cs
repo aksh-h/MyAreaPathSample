@@ -26,7 +26,7 @@ namespace AddUserToAreaPath
             //AreaPathSecuritySample.exe -a https://dev.azure.com/culater -p MyHealthClinic -c Team1 -g Test
             string accountUrl = "https://javadevopslab.visualstudio.com/";
             string projectName = "javadevops";
-            string areaPathName = "a1";
+            string areaPathName = "aa1";
             string groupName = "Test1";
 
             result.WithParsed((options) =>
