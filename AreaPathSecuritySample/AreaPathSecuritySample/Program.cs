@@ -1,5 +1,6 @@
 ﻿using CommandLine;
 using Microsoft.TeamFoundation.Core.WebApi;
+using Microsoft.TeamFoundation.SourceControl.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi.Models;
 using Microsoft.VisualStudio.Services.Client;
@@ -27,12 +28,14 @@ namespace AddUserToAreaPath
             try
             {
                 var result = Parser.Default.ParseArguments<Options>(args);
-                //Console.WriteLine("Enter Organization Name");
-                string accountUrl = "culater";//Console.ReadLine();//"https://dev.azure.com/culater";
+                Console.WriteLine("Enter Organization Name");
+                //string accountUrl = "culater";
+                string accountUrl = Console.ReadLine();
                 accountUrl = "https://dev.azure.com/" + accountUrl;
-                //Console.WriteLine("Enter Project Name");
+                Console.WriteLine("Enter Project Name");
 
-                string projectName = "ContosoAir";//Console.ReadLine();
+                //string projectName = "ContosoAir";
+                string projectName = Console.ReadLine();
                 string areaPathName = string.Empty;
                 string groupName = string.Empty;
                 string projectId = string.Empty;
@@ -42,20 +45,18 @@ namespace AddUserToAreaPath
                 // Get the team project
                 TeamProject project = GetProject(connection, projectName);
                 // Create Group at project level
-                //List<Groups> exportRows = ExportAreas();
                 Dictionary<string, string> groupArea = new Dictionary<string, string>();
                 string[] staticGroups = new string[] { "Dev", "QA", "Dev Lead", "Tech Lead", "Manager" };
                 string _area = string.Empty;
                 string _subArea = string.Empty;
                 string _group = string.Empty;
-                //foreach (var row in exportRows)
-                //{
-                //    string retGroupName = ConcatValues(row.Area, row.Subarea, row.Group);
-                //    string retAreaName = ConcatAreaValues(row.Area, row.Subarea);
-                //    groupArea.Add(retGroupName, retAreaName);
-                //}
+
                 WorkItemTrackingHttpClient workClient = connection.GetClient<WorkItemTrackingHttpClient>();
                 WorkItemClassificationNode areaPaths = workClient.GetClassificationNodeAsync(project.Id, TreeStructureGroup.Areas, depth: 5).Result;
+
+                GitHttpClient gitClient = connection.GetClient<GitHttpClient>();
+                List<GitRepository> repos = gitClient.GetRepositoriesAsync(project.Id).Result;
+
                 if (areaPaths.HasChildren == true)
                 {
                     List<string> listAreas = new List<string>();
@@ -101,14 +102,15 @@ namespace AddUserToAreaPath
 
                 }
 
-                //if (groupArea.Count > 0)
-                //{
-                //    foreach (var grp in groupArea)
-                //    {
-                //        CreateProjectVSTSGroup(connection, project.Id, grp.Key);
-                //    }
-                //}
+                if (groupArea.Count > 0)
+                {
+                    foreach (var grp in groupArea)
+                    {
+                        CreateProjectVSTSGroup(connection, project.Id, grp.Key);
+                    }
+                }
                 Console.WriteLine("Mapping groups to area, please wait..");
+
                 if (groupArea.Count > 0)
                 {
                     foreach (var grp in groupArea)
@@ -118,7 +120,18 @@ namespace AddUserToAreaPath
                         WorkItemClassificationNode areaPath = workClient.GetClassificationNodeAsync(project.Id, TreeStructureGroup.Areas, path: areaPathName).Result;
                         // Get the group
                         Identity group = GetProjectGroup(connection, groupName, projectName);
-
+                        string areaUnderGroupsToMove = string.Empty;
+                        string[] _areaName = areaPathName.Split('\\');
+                        if (_areaName.Length == 2)
+                        {
+                            areaUnderGroupsToMove = _areaName[1];
+                        }
+                        else
+                        {
+                            areaUnderGroupsToMove = _areaName[0];
+                        }
+                        var repo1 = repos.Where(r => r.Name == areaUnderGroupsToMove).SingleOrDefault();
+                        Console.WriteLine($"Moving {0} under {1} repository", groupName, repo1.Name);
                         // Get the acls for the area path
                         // Add group to the area path security with read/write perms for work items in this area path
 
@@ -135,14 +148,16 @@ namespace AddUserToAreaPath
                         var acesP = securityClient.SetAccessControlEntriesAsync(projectSecurityNamespaceId, projectAcl.Token, new List<AccessControlEntry> { projectEntry }, false).Result;
 
                         //GetACL for repository
-                        IEnumerable<AccessControlList> aclsRepo = securityClient.QueryAccessControlListsAsync(gitRepoNamespaceId, null, null, false, false).Result;
-                        AccessControlList RepoAcl = aclsRepo.FirstOrDefault(x => x.Token.Contains(project.Id.ToString()));
-                        AccessControlEntry repoEntry = new AccessControlEntry(group.Descriptor, 16502, 0, null);
-                        var acesRepo = securityClient.SetAccessControlEntriesAsync(gitRepoNamespaceId, RepoAcl.Token, new List<AccessControlEntry> { repoEntry }, false).Result;
+                        if (!string.IsNullOrEmpty(repo1.Name))
+                        {
+                            IEnumerable<AccessControlList> aclsRepo = securityClient.QueryAccessControlListsAsync(gitRepoNamespaceId, null, null, false, false).Result;
+                            AccessControlList RepoAcl = aclsRepo.FirstOrDefault(x => x.Token.Contains(repo1.Id.ToString()));
+                            AccessControlEntry repoEntry = new AccessControlEntry(group.Descriptor, 16502, 0, null);
+                            var acesRepo = securityClient.SetAccessControlEntriesAsync(gitRepoNamespaceId, RepoAcl.Token, new List<AccessControlEntry> { repoEntry }, false).Result;
+                        }
                     }
                 }
                 // Get the area path
-
                 Console.WriteLine("Successfully added your group to the area path.");
             }
             catch (Exception ex)
