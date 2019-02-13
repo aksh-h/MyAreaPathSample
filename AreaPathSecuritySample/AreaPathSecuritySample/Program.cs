@@ -21,17 +21,18 @@ namespace AddUserToAreaPath
     {
         private static Guid securityNamespaceId = new Guid("83e28ad4-2d72-4ceb-97b0-c7726d5502c3");
         private static Guid projectSecurityNamespaceId = new Guid("52d39943-cb85-4d7f-8fa8-c6baac873819");
+        private static Guid gitRepoNamespaceId = new Guid("2e9eb7ed-3c0a-47d4-87c1-0ffdd275fd87");
         private static void Main(string[] args)
         {
             try
             {
                 var result = Parser.Default.ParseArguments<Options>(args);
-                Console.WriteLine("Enter Organization Name");
-                string accountUrl = Console.ReadLine();//"https://dev.azure.com/culater";
+                //Console.WriteLine("Enter Organization Name");
+                string accountUrl = "culater";//Console.ReadLine();//"https://dev.azure.com/culater";
                 accountUrl = "https://dev.azure.com/" + accountUrl;
-                Console.WriteLine("Enter Project Name");
+                //Console.WriteLine("Enter Project Name");
 
-                string projectName = Console.ReadLine();
+                string projectName = "ContosoAir";//Console.ReadLine();
                 string areaPathName = string.Empty;
                 string groupName = string.Empty;
                 string projectId = string.Empty;
@@ -59,11 +60,15 @@ namespace AddUserToAreaPath
                 {
                     List<string> listAreas = new List<string>();
                     string areaName = string.Empty;
-
+                    //create areas and add it to list
                     foreach (var child in areaPaths.Children)
                     {
                         areaName = child.Name;
-                        listAreas.Add(areaName);
+                        if (child.HasChildren == false)
+                        {
+                            listAreas.Add(areaName);
+                        }
+
                         if (child.HasChildren == true)
                         {
                             foreach (var ch in child.Children)
@@ -96,13 +101,13 @@ namespace AddUserToAreaPath
 
                 }
 
-                if (groupArea.Count > 0)
-                {
-                    foreach (var grp in groupArea)
-                    {
-                        CreateProjectVSTSGroup(connection, project.Id, grp.Key);
-                    }
-                }
+                //if (groupArea.Count > 0)
+                //{
+                //    foreach (var grp in groupArea)
+                //    {
+                //        CreateProjectVSTSGroup(connection, project.Id, grp.Key);
+                //    }
+                //}
                 Console.WriteLine("Mapping groups to area, please wait..");
                 if (groupArea.Count > 0)
                 {
@@ -115,27 +120,32 @@ namespace AddUserToAreaPath
                         Identity group = GetProjectGroup(connection, groupName, projectName);
 
                         // Get the acls for the area path
+                        // Add group to the area path security with read/write perms for work items in this area path
+
                         SecurityHttpClient securityClient = connection.GetClient<SecurityHttpClient>();
                         IEnumerable<AccessControlList> acls = securityClient.QueryAccessControlListsAsync(securityNamespaceId, null, null, false, false).Result;
                         AccessControlList areaPathAcl = acls.FirstOrDefault(x => x.Token.Contains(areaPath.Identifier.ToString()));
-
-                        // Add group to the area path security with read/write perms for work items in this area path
                         AccessControlEntry entry = new AccessControlEntry(group.Descriptor, 48, 0, null);
                         var aces = securityClient.SetAccessControlEntriesAsync(securityNamespaceId, areaPathAcl.Token, new List<AccessControlEntry> { entry }, false).Result;
 
                         // Get acls for project
                         IEnumerable<AccessControlList> aclsProject = securityClient.QueryAccessControlListsAsync(projectSecurityNamespaceId, null, null, false, false).Result;
-                        string xsx = JsonConvert.SerializeObject(aclsProject);
                         AccessControlList projectAcl = aclsProject.FirstOrDefault(x => x.Token.Contains(project.Id.ToString()));
                         AccessControlEntry projectEntry = new AccessControlEntry(group.Descriptor, 1, 0, null);
                         var acesP = securityClient.SetAccessControlEntriesAsync(projectSecurityNamespaceId, projectAcl.Token, new List<AccessControlEntry> { projectEntry }, false).Result;
+
+                        //GetACL for repository
+                        IEnumerable<AccessControlList> aclsRepo = securityClient.QueryAccessControlListsAsync(gitRepoNamespaceId, null, null, false, false).Result;
+                        AccessControlList RepoAcl = aclsRepo.FirstOrDefault(x => x.Token.Contains(project.Id.ToString()));
+                        AccessControlEntry repoEntry = new AccessControlEntry(group.Descriptor, 16502, 0, null);
+                        var acesRepo = securityClient.SetAccessControlEntriesAsync(gitRepoNamespaceId, RepoAcl.Token, new List<AccessControlEntry> { repoEntry }, false).Result;
                     }
                 }
                 // Get the area path
 
                 Console.WriteLine("Successfully added your group to the area path.");
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Console.WriteLine(ex.Message);
             }
@@ -171,7 +181,6 @@ namespace AddUserToAreaPath
             GraphHttpClient graphClient = connection.GetClient<GraphHttpClient>();
 
             PagedGraphGroups groups = graphClient.ListGroupsAsync().Result;
-
             // This program assumes that the group we need is in the first batch of groups returned by the api. Ideally you need to page through
             // the api results to find your group.
             //GraphGroup group = groups.GraphGroups.FirstOrDefault(x => x.PrincipalName.Equals(groupName, StringComparison.OrdinalIgnoreCase));
