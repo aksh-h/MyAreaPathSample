@@ -28,14 +28,14 @@ namespace AddUserToAreaPath
             try
             {
                 var result = Parser.Default.ParseArguments<Options>(args);
-                Console.WriteLine("Enter Organization Name");
-                //string accountUrl = "culater";
-                string accountUrl = Console.ReadLine();
+                //Console.WriteLine("Enter Organization Name");
+                string accountUrl = "culater";
+                //string accountUrl = Console.ReadLine();
                 accountUrl = "https://dev.azure.com/" + accountUrl;
-                Console.WriteLine("Enter Project Name");
+                //Console.WriteLine("Enter Project Name");
 
-                //string projectName = "ContosoAir";
-                string projectName = Console.ReadLine();
+                string projectName = "ContosoAir";
+                //string projectName = Console.ReadLine();
                 string areaPathName = string.Empty;
                 string groupName = string.Empty;
                 string projectId = string.Empty;
@@ -130,8 +130,11 @@ namespace AddUserToAreaPath
                         {
                             areaUnderGroupsToMove = _areaName[0];
                         }
-                        var repo1 = repos.Where(r => r.Name == areaUnderGroupsToMove).SingleOrDefault();
-                        Console.WriteLine($"Moving {0} under {1} repository", groupName, repo1.Name);
+                        var repo_GrouopToBeMovedUnder = repos.Where(r => r.Name == areaUnderGroupsToMove).SingleOrDefault();
+                        if (repo_GrouopToBeMovedUnder != null)
+                        {
+                            Console.WriteLine($"Mapping {groupName} group to {repo_GrouopToBeMovedUnder.Name} repository");
+                        }
                         // Get the acls for the area path
                         // Add group to the area path security with read/write perms for work items in this area path
 
@@ -148,10 +151,10 @@ namespace AddUserToAreaPath
                         var acesP = securityClient.SetAccessControlEntriesAsync(projectSecurityNamespaceId, projectAcl.Token, new List<AccessControlEntry> { projectEntry }, false).Result;
 
                         //GetACL for repository
-                        if (!string.IsNullOrEmpty(repo1.Name))
+                        if (repo_GrouopToBeMovedUnder != null && !string.IsNullOrEmpty(repo_GrouopToBeMovedUnder.Name))
                         {
                             IEnumerable<AccessControlList> aclsRepo = securityClient.QueryAccessControlListsAsync(gitRepoNamespaceId, null, null, false, false).Result;
-                            AccessControlList RepoAcl = aclsRepo.FirstOrDefault(x => x.Token.Contains(repo1.Id.ToString()));
+                            AccessControlList RepoAcl = aclsRepo.FirstOrDefault(x => x.Token.Contains(repo_GrouopToBeMovedUnder.Id.ToString()));
                             AccessControlEntry repoEntry = new AccessControlEntry(group.Descriptor, 16502, 0, null);
                             var acesRepo = securityClient.SetAccessControlEntriesAsync(gitRepoNamespaceId, RepoAcl.Token, new List<AccessControlEntry> { repoEntry }, false).Result;
                         }
