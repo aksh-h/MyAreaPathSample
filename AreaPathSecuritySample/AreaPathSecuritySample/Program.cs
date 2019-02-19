@@ -1,4 +1,5 @@
-﻿using CommandLine;
+﻿using AreaPathSecuritySample;
+using CommandLine;
 using Microsoft.TeamFoundation.Core.WebApi;
 using Microsoft.TeamFoundation.SourceControl.WebApi;
 using Microsoft.TeamFoundation.WorkItemTracking.WebApi;
@@ -11,9 +12,11 @@ using Microsoft.VisualStudio.Services.Security;
 using Microsoft.VisualStudio.Services.Security.Client;
 using Microsoft.VisualStudio.Services.WebApi;
 using Newtonsoft.Json;
+using OfficeOpenXml;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.IO;
 using System.Linq;
 
 namespace AddUserToAreaPath
@@ -34,7 +37,7 @@ namespace AddUserToAreaPath
                 accountUrl = "https://dev.azure.com/" + accountUrl;
                 //Console.WriteLine("Enter Project Name");
 
-                string projectName = "ContosoAir";
+                string projectName = "SM_fm_1";
                 //string projectName = Console.ReadLine();
                 string areaPathName = string.Empty;
                 string groupName = string.Empty;
@@ -56,51 +59,8 @@ namespace AddUserToAreaPath
 
                 GitHttpClient gitClient = connection.GetClient<GitHttpClient>();
                 List<GitRepository> repos = gitClient.GetRepositoriesAsync(project.Id).Result;
-
-                if (areaPaths.HasChildren == true)
-                {
-                    List<string> listAreas = new List<string>();
-                    string areaName = string.Empty;
-                    //create areas and add it to list
-                    foreach (var child in areaPaths.Children)
-                    {
-                        areaName = child.Name;
-                        if (child.HasChildren == false)
-                        {
-                            listAreas.Add(areaName);
-                        }
-
-                        if (child.HasChildren == true)
-                        {
-                            foreach (var ch in child.Children)
-                            {
-                                string subArea = ch.Name;
-                                string newSubAreaName = areaName + "\\" + subArea;
-                                listAreas.Add(newSubAreaName);
-                            }
-                        }
-                    }
-                    foreach (var lArea in listAreas)
-                    {
-                        string subAreaName = string.Empty;
-                        string[] splitArea = lArea.Split('\\');
-                        string newgroupName = string.Empty;
-                        if (splitArea.Length == 2)
-                        {
-                            subAreaName = splitArea[1];
-                        }
-                        else
-                        {
-                            subAreaName = splitArea[0];
-                        }
-                        foreach (var _sGroups in staticGroups)
-                        {
-                            newgroupName = subAreaName + "_" + _sGroups;
-                            groupArea.Add(newgroupName, lArea);
-                        }
-                    }
-
-                }
+                List<RepoAreaMap> repoAreaMap = ReadRepoAreaMap();
+                groupArea = CreateAreaAndGroupAddToDictionary(areaPaths, staticGroups);
 
                 if (groupArea.Count > 0)
                 {
@@ -110,7 +70,7 @@ namespace AddUserToAreaPath
                     }
                 }
                 Console.WriteLine("Mapping groups to area, please wait..");
-
+                //mapping groups to areas
                 if (groupArea.Count > 0)
                 {
                     foreach (var grp in groupArea)
@@ -120,21 +80,7 @@ namespace AddUserToAreaPath
                         WorkItemClassificationNode areaPath = workClient.GetClassificationNodeAsync(project.Id, TreeStructureGroup.Areas, path: areaPathName).Result;
                         // Get the group
                         Identity group = GetProjectGroup(connection, groupName, projectName);
-                        string areaUnderGroupsToMove = string.Empty;
-                        string[] _areaName = areaPathName.Split('\\');
-                        if (_areaName.Length == 2)
-                        {
-                            areaUnderGroupsToMove = _areaName[1];
-                        }
-                        else
-                        {
-                            areaUnderGroupsToMove = _areaName[0];
-                        }
-                        var repo_GrouopToBeMovedUnder = repos.Where(r => r.Name == areaUnderGroupsToMove).SingleOrDefault();
-                        if (repo_GrouopToBeMovedUnder != null)
-                        {
-                            Console.WriteLine($"Mapping {groupName} group to {repo_GrouopToBeMovedUnder.Name} repository");
-                        }
+
                         // Get the acls for the area path
                         // Add group to the area path security with read/write perms for work items in this area path
 
@@ -149,18 +95,42 @@ namespace AddUserToAreaPath
                         AccessControlList projectAcl = aclsProject.FirstOrDefault(x => x.Token.Contains(project.Id.ToString()));
                         AccessControlEntry projectEntry = new AccessControlEntry(group.Descriptor, 1, 0, null);
                         var acesP = securityClient.SetAccessControlEntriesAsync(projectSecurityNamespaceId, projectAcl.Token, new List<AccessControlEntry> { projectEntry }, false).Result;
+                    }
+                }
 
-                        //GetACL for repository
-                        if (repo_GrouopToBeMovedUnder != null && !string.IsNullOrEmpty(repo_GrouopToBeMovedUnder.Name))
+                List<RepoAreaMap> listRepoAreaMaps = ReadRepoAreaMap();
+                foreach (var repoArea in listRepoAreaMaps)
+                {
+                    SecurityHttpClient securityClient = connection.GetClient<SecurityHttpClient>();
+                    string area = string.Empty;
+                    if (repoArea.Area != null && repoArea.Subarea != null)
+                    {
+                        area = repoArea.Subarea;
+                    }
+                    else if (repoArea.Area != null && repoArea.Subarea == null)
+                    {
+                        area = repoArea.Area;
+                    }
+                    if (repoArea.Repo != null)
+                    {
+                        var repo_ToMoveGroups = repos.Where(r => r.Name == repoArea.Repo).SingleOrDefault();
+                        if (repo_ToMoveGroups != null && !string.IsNullOrEmpty(repo_ToMoveGroups.Name))
                         {
-                            IEnumerable<AccessControlList> aclsRepo = securityClient.QueryAccessControlListsAsync(gitRepoNamespaceId, null, null, false, false).Result;
-                            AccessControlList RepoAcl = aclsRepo.FirstOrDefault(x => x.Token.Contains(repo_GrouopToBeMovedUnder.Id.ToString()));
-                            AccessControlEntry repoEntry = new AccessControlEntry(group.Descriptor, 16502, 0, null);
-                            var acesRepo = securityClient.SetAccessControlEntriesAsync(gitRepoNamespaceId, RepoAcl.Token, new List<AccessControlEntry> { repoEntry }, false).Result;
+                            List<string> repoGroupMap = CreateRepoGroupMap(area, staticGroups);
+
+                            foreach (var repoGroup in repoGroupMap)
+                            {
+                                Identity group = GetProjectGroup(connection, repoGroup, projectName);
+                                IEnumerable<AccessControlList> aclsRepo = securityClient.QueryAccessControlListsAsync(gitRepoNamespaceId, null, null, false, false).Result;
+                                AccessControlList RepoAcl = aclsRepo.FirstOrDefault(x => x.Token.Contains(repo_ToMoveGroups.Id.ToString()));
+                                AccessControlEntry repoEntry = new AccessControlEntry(group.Descriptor, 16502, 0, null);
+                                var acesRepo = securityClient.SetAccessControlEntriesAsync(gitRepoNamespaceId, RepoAcl.Token, new List<AccessControlEntry> { repoEntry }, false).Result;
+                            }
+
                         }
                     }
                 }
-                // Get the area path
+
                 Console.WriteLine("Successfully added your group to the area path.");
             }
             catch (Exception ex)
@@ -360,6 +330,104 @@ namespace AddUserToAreaPath
             GraphGroup newGroup = graphClient.CreateGroupAsync(createGroupContext, projectDescriptor.Value).Result;
             string groupDescriptor = newGroup.Descriptor;
             Console.WriteLine(groupDescriptor);
+        }
+
+
+        public static Dictionary<string, string> CreateAreaAndGroupAddToDictionary(WorkItemClassificationNode areaPaths, string[] staticGroups)
+        {
+            Dictionary<string, string> groupArea = new Dictionary<string, string>();
+            if (areaPaths.HasChildren == true)
+            {
+                List<string> listAreas = new List<string>();
+                string areaName = string.Empty;
+                //create areas and add it to list
+                foreach (var child in areaPaths.Children)
+                {
+                    areaName = child.Name;
+                    if (child.HasChildren == false)
+                    {
+                        listAreas.Add(areaName);
+                    }
+
+                    if (child.HasChildren == true)
+                    {
+                        foreach (var ch in child.Children)
+                        {
+                            string subArea = ch.Name;
+                            string newSubAreaName = areaName + "\\" + subArea;
+                            listAreas.Add(newSubAreaName);
+                        }
+                    }
+                }
+                foreach (var lArea in listAreas)
+                {
+                    string subAreaName = string.Empty;
+                    string[] splitArea = lArea.Split('\\');
+                    string newgroupName = string.Empty;
+                    if (splitArea.Length == 2)
+                    {
+                        subAreaName = splitArea[1];
+                    }
+                    else
+                    {
+                        subAreaName = splitArea[0];
+                    }
+                    foreach (var _sGroups in staticGroups)
+                    {
+                        newgroupName = subAreaName + "_" + _sGroups;
+                        groupArea.Add(newgroupName, lArea);
+                    }
+                }
+            }
+            return groupArea;
+        }
+
+        public static List<RepoAreaMap> ReadRepoAreaMap(bool hasHeader = true)
+        {
+            string path = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Setting\\RepoAreaMap.xlsx");
+
+            using (var pck = new ExcelPackage())
+            {
+                using (var stream = File.OpenRead(path))
+                {
+                    pck.Load(stream);
+                }
+                var ws = pck.Workbook.Worksheets.First();
+                DataTable tbl = new DataTable();
+                foreach (var firstRowCell in ws.Cells[1, 1, 1, ws.Dimension.End.Column])
+                {
+                    tbl.Columns.Add(hasHeader ? firstRowCell.Text : string.Format("Column {0}", firstRowCell.Start.Column));
+                }
+                var startRow = hasHeader ? 2 : 1;
+                for (int rowNum = startRow; rowNum <= ws.Dimension.End.Row; rowNum++)
+                {
+                    var wsRow = ws.Cells[rowNum, 1, rowNum, ws.Dimension.End.Column];
+                    DataRow row = tbl.Rows.Add();
+                    foreach (var cell in wsRow)
+                    {
+                        row[cell.Start.Column - 1] = cell.Text;
+                    }
+                }
+                string JSONString = string.Empty;
+                var abc = JsonConvert.DeserializeObject<List<RepoAreaMap>>(JsonConvert.SerializeObject(tbl));
+                string asasd = JsonConvert.SerializeObject(abc);
+                return JsonConvert.DeserializeObject<List<RepoAreaMap>>(JsonConvert.SerializeObject(tbl));
+            }
+        }
+
+        public static List<string> CreateRepoGroupMap(string area, string[] staticGroups)
+        {
+            if (staticGroups.Length > 0)
+            {
+                List<string> listGroups = new List<string>();
+                foreach (var group in staticGroups)
+                {
+                    string groupName = area + "_" + group;
+                    listGroups.Add(groupName);
+                }
+                return listGroups;
+            }
+            return new List<string>();
         }
     }
 }
