@@ -120,13 +120,24 @@ namespace AddUserToAreaPath
 
                             foreach (var repoGroup in repoGroupMap)
                             {
-                                Identity group = GetProjectGroup(connection, repoGroup, projectName);
-                                IEnumerable<AccessControlList> aclsRepo = securityClient.QueryAccessControlListsAsync(gitRepoNamespaceId, null, null, false, false).Result;
-                                AccessControlList RepoAcl = aclsRepo.FirstOrDefault(x => x.Token.Contains(repo_ToMoveGroups.Id.ToString()));
-                                AccessControlEntry repoEntry = new AccessControlEntry(group.Descriptor, 16502, 0, null);
-                                var acesRepo = securityClient.SetAccessControlEntriesAsync(gitRepoNamespaceId, RepoAcl.Token, new List<AccessControlEntry> { repoEntry }, false).Result;
+                                if (repoGroup.Contains("Dev") || repoGroup.Contains("QA"))
+                                {
+                                    Identity group = GetProjectGroup(connection, repoGroup, projectName);
+                                    IEnumerable<AccessControlList> aclsRepo = securityClient.QueryAccessControlListsAsync(gitRepoNamespaceId, null, null, false, false).Result;
+                                    string hsg = JsonConvert.SerializeObject(aclsRepo);
+                                    AccessControlList RepoAcl = aclsRepo.FirstOrDefault(x => x.Token.Contains(repo_ToMoveGroups.Id.ToString()));
+                                    AccessControlEntry repoEntry = new AccessControlEntry(group.Descriptor, 16502, 0, null);
+                                    var acesRepo = securityClient.SetAccessControlEntriesAsync(gitRepoNamespaceId, RepoAcl.Token, new List<AccessControlEntry> { repoEntry }, false).Result;
+                                }
+                                if (repoGroup.Contains("Manager") || repoGroup.Contains("Tech Lead"))
+                                {
+                                    Identity group = GetProjectGroup(connection, repoGroup, projectName);
+                                    IEnumerable<AccessControlList> aclsRepo = securityClient.QueryAccessControlListsAsync(gitRepoNamespaceId, null, null, false, false).Result;
+                                    AccessControlList RepoAcl = aclsRepo.FirstOrDefault(x => x.Token.Contains(repo_ToMoveGroups.Id.ToString()));
+                                    AccessControlEntry repoEntry = new AccessControlEntry(group.Descriptor, 16386, 0, null);
+                                    var acesRepo = securityClient.SetAccessControlEntriesAsync(gitRepoNamespaceId, RepoAcl.Token, new List<AccessControlEntry> { repoEntry }, false).Result;
+                                }
                             }
-
                         }
                     }
                 }
@@ -310,6 +321,17 @@ namespace AddUserToAreaPath
 
         //112
         //all not set
+
+        // Repository
+        //16386 - Contribute to pull requests
+        //Read
+        //16502 - Contribute	Allow
+        //Contribute to pull requests Allow
+        //Create branch Allow
+        //Create tag  Allow
+        //Manage notes    Allow
+        //Read
+
         #endregion
 
         public static void CreateProjectVSTSGroup(VssConnection connection, Guid projectId, string groupName)
@@ -331,7 +353,6 @@ namespace AddUserToAreaPath
             string groupDescriptor = newGroup.Descriptor;
             Console.WriteLine(groupDescriptor);
         }
-
 
         public static Dictionary<string, string> CreateAreaAndGroupAddToDictionary(WorkItemClassificationNode areaPaths, string[] staticGroups)
         {
